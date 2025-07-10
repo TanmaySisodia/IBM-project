@@ -1,0 +1,362 @@
+
+IBM Project Tanmay Sisodia.ipynb
+IBM Project Tanmay Sisodia.ipynb_
+Project
+AI Resume & Cover Letter Generator
+
+Description
+
+Create a web application that generates personalized, professional resumes and cover letters based on user input like skills, job role, experience, and career goals using AI (LLMs).
+
+Code
+
+# Install necessary libraries
+!pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib reportlab pillow
+
+# Install ImageMagick for PDF to Image conversion
+!apt-get update && apt-get install -y imagemagick
+
+# Import libraries
+import io
+import os
+import json
+from google.colab import auth
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from google.colab import files
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from PIL import Image
+
+# --- User Input ---
+
+print("--- Resume Information ---")
+
+name = input("Full Name: ")
+contact_info = input("Contact Information (Phone, Email, LinkedIn URL): ")
+summary = input("Professional Summary: ")
+
+print("\n--- Education ---")
+education_entries = []
+while True:
+    degree = input("Degree (or 'done' to finish education): ")
+    if degree.lower() == 'done':
+        break
+    institution = input("Institution: ")
+    years = input("Years Attended: ")
+    education_entries.append({'degree': degree, 'institution': institution, 'years': years})
+
+print("\n--- Work Experience ---")
+work_entries = []
+while True:
+    job_title = input("Job Title (or 'done' to finish work experience): ")
+    if job_title.lower() == 'done':
+        break
+    company = input("Company: ")
+    dates = input("Dates of Employment: ")
+    responsibilities = []
+    print("Enter key responsibilities (one per line, type 'done' when finished):")
+    while True:
+        resp = input()
+        if resp.lower() == 'done':
+            break
+        responsibilities.append(resp)
+    work_entries.append({'job_title': job_title, 'company': company, 'dates': dates, 'responsibilities': responsibilities})
+
+print("\n--- Skills ---")
+skills = input("Skills (comma-separated): ").split(',')
+
+print("\n--- Additional Information (Optional) ---")
+additional_sections = {}
+while True:
+    section_title = input("Additional Section Title (e.g., 'Projects', 'Awards', or 'done' to finish): ")
+    if section_title.lower() == 'done':
+        break
+    content = []
+    print(f"Enter content for '{section_title}' (one per line, type 'done' when finished):")
+    while True:
+        item = input()
+        if item.lower() == 'done':
+            break
+        content.append(item)
+    additional_sections[section_title] = content
+
+print("\n--- Preferences ---")
+upload_to_drive = input("Upload the generated files to Google Drive? (yes/no): ").lower() == 'yes'
+include_photo = input("Include a profile photo? (yes/no): ").lower() == 'yes'
+use_fancy_template = input("Use a fancy template layout? (yes/no): ").lower() == 'yes'
+
+profile_photo_path = None
+if include_photo:
+    print("\nUpload your profile photo.")
+    uploaded = files.upload()
+    if uploaded:
+        profile_photo_path = list(uploaded.keys())[0]
+        print(f"Uploaded photo: {profile_photo_path}")
+    else:
+        print("No photo uploaded.")
+
+# --- Data Structure for Resume ---
+resume_data = {
+    'name': name,
+    'contact_info': contact_info,
+    'summary': summary,
+    'education': education_entries,
+    'experience': work_entries,
+    'skills': skills,
+    'additional_sections': additional_sections
+}
+
+# --- Resume Generation (Simple Text-Based for now, will integrate templating later) ---
+
+def generate_simple_resume_text(data):
+    resume_text = f"{data['name']}\n{data['contact_info']}\n\n"
+    resume_text += f"Summary:\n{data['summary']}\n\n"
+
+    resume_text += "Education:\n"
+    for entry in data['education']:
+        resume_text += f"- {entry['degree']}, {entry['institution']}, {entry['years']}\n"
+    resume_text += "\n"
+
+    resume_text += "Work Experience:\n"
+    for entry in data['experience']:
+        resume_text += f"- {entry['job_title']} at {entry['company']} ({entry['dates']})\n"
+        for resp in entry['responsibilities']:
+            resume_text += f"  - {resp}\n"
+        resume_text += "\n"
+
+    resume_text += f"Skills:\n{', '.join(data['skills'])}\n\n"
+
+    for title, content in data['additional_sections'].items():
+        resume_text += f"{title}:\n"
+        for item in content:
+            resume_text += f"- {item}\n"
+        resume_text += "\n"
+
+    return resume_text.strip()
+
+# --- PDF Generation ---
+
+def generate_pdf(data, profile_photo_path=None, use_fancy_template=False):
+    pdf_buffer = io.BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=letter)
+
+    if use_fancy_template:
+        # This is a placeholder. Implementing a "fancy" template
+        # requires more complex layout logic (columns, styling, etc.)
+        # using ReportLab or another PDF library.
+        # We'll add some basic formatting if fancy is True.
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(100, 750, data['name'])
+        c.setFont("Helvetica", 10)
+        c.drawString(100, 735, data['contact_info'])
+
+        y_position = 700
+
+        if profile_photo_path and os.path.exists(profile_photo_path):
+             try:
+                 img = ImageReader(profile_photo_path)
+                 # Resize and position the image (adjust as needed)
+                 img_width, img_height = img.getSize()
+                 aspect_ratio = img_height / img_width
+                 new_width = 80
+                 new_height = new_width * aspect_ratio
+                 c.drawImage(img, 480, y_position - new_height, width=new_width, height=new_height, mask='auto')
+                 y_position -= new_height + 20 # Move down after placing image
+             except Exception as e:
+                 print(f"Could not draw image: {e}")
+
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(100, y_position, "Summary")
+        c.setFont("Helvetica", 10)
+        y_position -= 15
+        for line in data['summary'].split('\n'):
+            c.drawString(120, y_position, line)
+            y_position -= 12
+        y_position -= 10
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(100, y_position, "Education")
+        c.setFont("Helvetica", 10)
+        y_position -= 15
+        for entry in data['education']:
+            c.drawString(120, y_position, f"{entry['degree']}, {entry['institution']}, {entry['years']}")
+            y_position -= 12
+        y_position -= 10
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(100, y_position, "Work Experience")
+        c.setFont("Helvetica", 10)
+        y_position -= 15
+        for entry in data['experience']:
+            c.drawString(120, y_position, f"{entry['job_title']} at {entry['company']} ({entry['dates']})")
+            y_position -= 12
+            for resp in entry['responsibilities']:
+                c.drawString(140, y_position, f"- {resp}")
+                y_position -= 12
+            y_position -= 5
+        y_position -= 10
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(100, y_position, "Skills")
+        c.setFont("Helvetica", 10)
+        y_position -= 15
+        c.drawString(120, y_position, ', '.join(data['skills']))
+        y_position -= 12
+        y_position -= 10
+
+        for title, content in data['additional_sections'].items():
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(100, y_position, title)
+            c.setFont("Helvetica", 10)
+            y_position -= 15
+            for item in content:
+                 c.drawString(120, y_position, f"- {item}")
+                 y_position -= 12
+            y_position -= 10
+
+
+    else: # Simple template
+        c.setFont("Helvetica", 12)
+        text = c.beginText(50, 750)
+        text.textLines(generate_simple_resume_text(data))
+        c.drawText(text)
+
+        if profile_photo_path and os.path.exists(profile_photo_path):
+             try:
+                 img = ImageReader(profile_photo_path)
+                 # Resize and position the image (adjust as needed)
+                 img_width, img_height = img.getSize()
+                 aspect_ratio = img_height / img_width
+                 new_width = 80
+                 new_height = new_width * aspect_ratio
+                 c.drawImage(img, 480, 750 - new_height, width=new_width, height=new_height, mask='auto')
+             except Exception as e:
+                 print(f"Could not draw image: {e}")
+
+    c.save()
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
+# --- Image Generation (from PDF) ---
+# This is a basic conversion. For better results, consider using libraries
+# like `PymuPDF` or `wand` (requires ImageMagick which can be installed)
+# !apt-get update && apt-get install -y imagemagick
+# !pip install wand
+
+def pdf_to_image(pdf_buffer):
+    try:
+        # This requires ImageMagick to be installed
+        # from wand.image import Image as WandImage
+        # with WandImage(blob=pdf_buffer.getvalue(), format='pdf') as img:
+        #     img.format = 'jpeg'
+        #     img.save(filename='resume.jpg') # Or return img.make_blob()
+        # return 'resume.jpg'
+
+        # Fallback/Alternative: Use Pillow to attempt reading PDF (limited support)
+        # Or, save PDF and use a command line tool via !
+        # This requires saving to disk first.
+        with open("temp_resume.pdf", "wb") as f:
+            f.write(pdf_buffer.getvalue())
+        # This is a command line call using ImageMagick
+        !convert -density 150 temp_resume.pdf -quality 90 resume.jpg
+        os.remove("temp_resume.pdf")
+        return 'resume.jpg'
+
+    except Exception as e:
+        print(f"Could not convert PDF to Image. Error: {e}")
+        print("Ensure ImageMagick is installed (`!apt-get update && !apt-get install -y imagemagick`)")
+        return None
+
+# --- Google Drive Integration ---
+
+def upload_to_drive_folder(file_path, folder_name='MyResumeCVs'):
+    try:
+        auth.authenticate_user()
+        service = build('drive', 'v3')
+
+        # Check if folder exists, create if not
+        results = service.files().list(
+            q=f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder'",
+            spaces='drive',
+            fields='files(id, name)').execute()
+
+        folder_id = None
+        if results.get('files', []):
+            folder_id = results['files'][0]['id']
+            print(f"Found folder '{folder_name}' with ID: {folder_id}")
+        else:
+            print(f"Folder '{folder_name}' not found. Creating it.")
+            file_metadata = {
+                'name': folder_name,
+                'mimeType': 'application/vnd.google-apps.folder'
+            }
+            folder = service.files().create(body=file_metadata, fields='id').execute()
+            folder_id = folder.get('id')
+            print(f"Created folder '{folder_name}' with ID: {folder_id}")
+
+        # Upload the file
+        file_metadata = {'name': os.path.basename(file_path),
+                         'parents': [folder_id]}
+        media = MediaFileUpload(file_path,
+                                mimetype='application/pdf' if file_path.endswith('.pdf') else 'image/jpeg',
+                                resumable=True)
+        file = service.files().create(body=file_metadata,
+                                      media_body=media,
+                                      fields='id').execute()
+        print(f"Uploaded '{os.path.basename(file_path)}' to Google Drive. File ID: {file.get('id')}")
+        return file.get('id')
+
+    except Exception as e:
+        print(f"An error occurred during Google Drive upload: {e}")
+        return None
+
+# --- Main Execution ---
+
+# Generate PDF
+pdf_buffer = generate_pdf(resume_data, profile_photo_path, use_fancy_template)
+pdf_filename = "resume.pdf"
+with open(pdf_filename, "wb") as f:
+    f.write(pdf_buffer.getvalue())
+
+print(f"\nGenerated {pdf_filename}")
+
+# Generate Image (from PDF)
+image_filename = pdf_to_image(pdf_buffer)
+if image_filename:
+    print(f"Generated {image_filename}")
+
+# --- Download Options ---
+print("\n--- Download Options ---")
+print(f"You can download '{pdf_filename}'")
+if image_filename:
+    print(f"You can download '{image_filename}'")
+
+# Offer download via Colab
+download_pdf = input("Download PDF? (yes/no): ").lower() == 'yes'
+if download_pdf:
+    files.download(pdf_filename)
+    print(f"Downloading {pdf_filename}...")
+
+if image_filename:
+    download_image = input("Download JPG image? (yes/no): ").lower() == 'yes'
+    if download_image:
+        files.download(image_filename)
+        print(f"Downloading {image_filename}...")
+
+# --- Google Drive Upload Option ---
+if upload_to_drive:
+    print("\n--- Google Drive Upload ---")
+    if pdf_filename:
+        upload_to_drive_folder(pdf_filename)
+    if image_filename:
+         # Need to handle the case where image generation failed
+         if os.path.exists(image_filename):
+            upload_to_drive_folder(image_filename)
+         else:
+             print("Image file not found for upload.")
+
+print("\nResume/CV generation complete.")
+
